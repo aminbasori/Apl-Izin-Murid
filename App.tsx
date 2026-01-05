@@ -172,6 +172,12 @@ function App() {
         )}
       </main>
 
+      {/* Footer */}
+      <footer className="mt-12 text-center text-slate-400 text-sm font-medium pb-8 space-y-1">
+        <p>&copy; 2026 SDN Bangsal. All Rights Reserved.</p>
+        <p>Aplikasi ini Dibuat Oleh : <span className="text-violet-500 font-bold">Amin Basori, S.Pd</span> (GPAI SDN Bangsal)</p>
+      </footer>
+
       {/* Modern Success Toast */}
       {showSuccessToast && (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 z-50 animate-bounce border border-white/10">
