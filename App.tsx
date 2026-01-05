@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ClipboardList, History, Bell } from 'lucide-react';
+import { BookOpen, ClipboardList, ShieldCheck, Bell, LogOut } from 'lucide-react';
 import AbsenceForm from './components/AbsenceForm';
 import HistoryView from './components/HistoryView';
-import { AbsenceRecord } from './types';
+import AdminLogin from './components/AdminLogin';
+import { AbsenceRecord, ApprovalStatus } from './types';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'form' | 'history'>('form');
+  const [activeTab, setActiveTab] = useState<'form' | 'admin'>('form');
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [records, setRecords] = useState<AbsenceRecord[]>([]);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('Data telah tersimpan di sistem.');
 
   // Load records from LocalStorage on mount
   useEffect(() => {
@@ -20,7 +23,12 @@ function App() {
       }
     }
 
-    // Request Notification Permission on load
+    // Check login session (optional, simpler to just reset on refresh for security demo)
+    const session = sessionStorage.getItem('isAdminLoggedIn');
+    if (session === 'true') {
+      setIsAdminLoggedIn(true);
+    }
+
     if ("Notification" in window && Notification.permission !== "granted") {
       Notification.requestPermission();
     }
@@ -31,18 +39,30 @@ function App() {
     localStorage.setItem('sdn_bangsal_absensi', JSON.stringify(records));
   }, [records]);
 
+  const handleLoginSuccess = () => {
+    setIsAdminLoggedIn(true);
+    sessionStorage.setItem('isAdminLoggedIn', 'true');
+  };
+
+  const handleLogout = () => {
+    setIsAdminLoggedIn(false);
+    sessionStorage.removeItem('isAdminLoggedIn');
+    setActiveTab('form');
+  };
+
   const handleFormSubmit = (newRecordData: Omit<AbsenceRecord, 'id' | 'timestamp'>) => {
     const newRecord: AbsenceRecord = {
       ...newRecordData,
       id: crypto.randomUUID(),
       timestamp: Date.now(),
+      status: 'Menunggu' // Default status
     };
     
     setRecords(prev => [newRecord, ...prev]);
+    setToastMessage('Data telah tersimpan di sistem.');
     setShowSuccessToast(true);
     setTimeout(() => setShowSuccessToast(false), 3000);
 
-    // Trigger Browser Notification
     if ("Notification" in window && Notification.permission === "granted") {
       new Notification("Izin Baru Diterima", {
         body: `${newRecord.studentName} (${newRecord.className}) - ${newRecord.type}`,
@@ -55,7 +75,16 @@ function App() {
   const handleDeleteRecord = (id: string) => {
     if (window.confirm('Apakah Anda yakin ingin menghapus data ini?')) {
       setRecords(prev => prev.filter(r => r.id !== id));
+      setToastMessage('Data berhasil dihapus dari sistem.');
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
     }
+  };
+
+  const handleUpdateStatus = (id: string, status: ApprovalStatus) => {
+    setRecords(prev => prev.map(record => 
+      record.id === id ? { ...record, status } : record
+    ));
   };
 
   return (
@@ -69,11 +98,22 @@ function App() {
             </div>
             <div>
               <h1 className="text-xl font-extrabold text-white tracking-tight drop-shadow-sm">SDN Bangsal</h1>
-              <p className="text-xs text-purple-100 font-medium opacity-90 tracking-wide">Aplikasi Absensi Digital</p>
+              <p className="text-xs text-purple-100 font-medium opacity-90 tracking-wide">Aplikasi Izin Ketidakhadiran Murid</p>
             </div>
           </div>
-          <div className="bg-white/20 backdrop-blur-md p-2.5 rounded-full text-white cursor-pointer hover:bg-white/30 transition-all border border-white/30">
-            <Bell className="w-5 h-5" />
+          <div className="flex gap-2">
+            <div className="bg-white/20 backdrop-blur-md p-2.5 rounded-full text-white cursor-pointer hover:bg-white/30 transition-all border border-white/30">
+              <Bell className="w-5 h-5" />
+            </div>
+            {isAdminLoggedIn && activeTab === 'admin' && (
+              <button 
+                onClick={handleLogout}
+                className="bg-red-500/80 backdrop-blur-md p-2.5 rounded-full text-white cursor-pointer hover:bg-red-600 transition-all border border-white/30"
+                title="Keluar Admin"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -93,15 +133,15 @@ function App() {
             Form Izin
           </button>
           <button
-            onClick={() => setActiveTab('history')}
+            onClick={() => setActiveTab('admin')}
             className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-bold rounded-xl transition-all duration-300 ${
-              activeTab === 'history' 
+              activeTab === 'admin' 
                 ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md transform scale-[1.02]' 
                 : 'text-slate-500 hover:bg-slate-50 hover:text-violet-600'
             }`}
           >
-            <History className="w-4 h-4" />
-            Riwayat
+            <ShieldCheck className="w-4 h-4" />
+            Admin & Rekap
           </button>
         </div>
       </div>
@@ -119,7 +159,16 @@ function App() {
              <AbsenceForm onSubmit={handleFormSubmit} />
           </div>
         ) : (
-          <HistoryView records={records} onDelete={handleDeleteRecord} />
+          /* Logic Tab Admin */
+          !isAdminLoggedIn ? (
+            <AdminLogin onLogin={handleLoginSuccess} />
+          ) : (
+            <HistoryView 
+              records={records} 
+              onDelete={handleDeleteRecord} 
+              onUpdateStatus={handleUpdateStatus}
+            />
+          )
         )}
       </main>
 
@@ -131,7 +180,7 @@ function App() {
           </div>
           <div>
             <p className="font-bold text-sm">Berhasil!</p>
-            <p className="text-xs text-slate-300">Data telah tersimpan di sistem.</p>
+            <p className="text-xs text-slate-300">{toastMessage}</p>
           </div>
         </div>
       )}

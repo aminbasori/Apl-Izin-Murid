@@ -1,15 +1,16 @@
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { Download, Search, Filter, Trash2, Calendar } from 'lucide-react';
-import { AbsenceRecord, FilterState } from '../types';
+import { Download, Search, Filter, Trash2, Calendar, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { AbsenceRecord, FilterState, ApprovalStatus } from '../types';
 import { CLASSES } from '../constants';
 
 interface HistoryViewProps {
   records: AbsenceRecord[];
   onDelete: (id: string) => void;
+  onUpdateStatus: (id: string, status: ApprovalStatus) => void;
 }
 
-const HistoryView: React.FC<HistoryViewProps> = ({ records, onDelete }) => {
+const HistoryView: React.FC<HistoryViewProps> = ({ records, onDelete, onUpdateStatus }) => {
   const [filters, setFilters] = useState<FilterState>({
     month: '',
     className: ''
@@ -39,6 +40,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ records, onDelete }) => {
       'Kelas': rec.className,
       'Jenis': rec.type,
       'Alasan': rec.reason,
+      'Status': rec.status || 'Menunggu',
       'Tanggal': new Date(rec.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
       'Waktu Input': new Date(rec.timestamp).toLocaleTimeString('id-ID')
     }));
@@ -53,6 +55,7 @@ const HistoryView: React.FC<HistoryViewProps> = ({ records, onDelete }) => {
       { wch: 10 }, // Kelas
       { wch: 15 }, // Jenis
       { wch: 30 }, // Alasan
+      { wch: 15 }, // Status
       { wch: 25 }, // Tanggal
       { wch: 15 }, // Waktu
     ];
@@ -68,12 +71,17 @@ const HistoryView: React.FC<HistoryViewProps> = ({ records, onDelete }) => {
   return (
     <div className="space-y-8">
       <div className="bg-white p-6 md:p-8 rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100">
-        <h2 className="text-xl font-black text-slate-800 flex items-center gap-3 mb-6">
-          <div className="p-2 bg-violet-100 rounded-lg text-violet-600">
-            <Filter className="w-5 h-5" />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+          <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
+            <div className="p-2 bg-violet-100 rounded-lg text-violet-600">
+              <Filter className="w-5 h-5" />
+            </div>
+            Filter Data & Download
+          </h2>
+          <div className="text-sm font-medium text-slate-500 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
+            Total Data: <span className="text-violet-600 font-bold">{filteredRecords.length}</span>
           </div>
-          Filter Data & Download
-        </h2>
+        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div>
@@ -122,10 +130,10 @@ const HistoryView: React.FC<HistoryViewProps> = ({ records, onDelete }) => {
           <table className="w-full text-left text-sm">
             <thead className="bg-violet-50/50 border-b border-violet-100">
               <tr>
-                <th className="p-5 font-bold text-violet-900">Tanggal</th>
-                <th className="p-5 font-bold text-violet-900">Siswa</th>
+                <th className="p-5 font-bold text-violet-900">Siswa & Tanggal</th>
                 <th className="p-5 font-bold text-violet-900">Keterangan</th>
                 <th className="p-5 font-bold text-violet-900">Bukti</th>
+                <th className="p-5 font-bold text-violet-900">Status Persetujuan</th>
                 <th className="p-5 font-bold text-violet-900 text-right">Aksi</th>
               </tr>
             </thead>
@@ -133,35 +141,33 @@ const HistoryView: React.FC<HistoryViewProps> = ({ records, onDelete }) => {
               {filteredRecords.length > 0 ? (
                 filteredRecords.map((record) => (
                   <tr key={record.id} className="hover:bg-slate-50 transition-colors group">
-                    <td className="p-5 whitespace-nowrap text-slate-600">
-                      <div className="flex items-center gap-2 font-medium">
-                        <div className="p-1.5 bg-slate-100 rounded-lg text-slate-400">
-                          <Calendar className="w-4 h-4" />
-                        </div>
-                        {new Date(record.date).toLocaleDateString('id-ID', {day: 'numeric', month: 'short', year: 'numeric'})}
+                    <td className="p-5">
+                      <div className="font-bold text-slate-800 text-base">{record.studentName}</div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs font-bold text-violet-600 bg-violet-100 px-2 py-0.5 rounded-md">
+                          Kelas {record.className}
+                        </span>
+                        <span className="text-xs text-slate-400 flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {new Date(record.date).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'})}
+                        </span>
                       </div>
                     </td>
                     <td className="p-5">
-                      <div className="font-bold text-slate-800 text-base">{record.studentName}</div>
-                      <span className="text-xs font-bold text-violet-600 bg-violet-100 px-2 py-1 rounded-md mt-1 inline-block">
-                        Kelas {record.className}
-                      </span>
-                    </td>
-                    <td className="p-5">
-                      <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold ${
+                      <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold mb-2 ${
                         record.type === 'Sakit' ? 'bg-red-100 text-red-700' :
                         record.type === 'Izin' ? 'bg-amber-100 text-amber-700' :
                         'bg-slate-100 text-slate-700'
                       }`}>
                         {record.type}
                       </div>
-                      <div className="mt-2 text-slate-500 truncate max-w-[200px] text-xs font-medium" title={record.reason}>
+                      <div className="text-slate-500 truncate max-w-[150px] text-xs font-medium italic" title={record.reason}>
                         "{record.reason}"
                       </div>
                     </td>
                     <td className="p-5">
                       {record.proofImage ? (
-                        <div className="relative w-12 h-12">
+                        <div className="relative w-12 h-12 group/img">
                           <img 
                             src={record.proofImage} 
                             alt="Bukti" 
@@ -178,10 +184,48 @@ const HistoryView: React.FC<HistoryViewProps> = ({ records, onDelete }) => {
                         <span className="text-xs text-slate-300 italic">Nil</span>
                       )}
                     </td>
+                    <td className="p-5">
+                      <div className="flex flex-col gap-2">
+                         {!record.status || record.status === 'Menunggu' ? (
+                           <div className="flex gap-1">
+                              <button 
+                                onClick={() => onUpdateStatus(record.id, 'Disetujui')}
+                                className="flex-1 bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1"
+                              >
+                                <CheckCircle className="w-3 h-3" /> Terima
+                              </button>
+                              <button 
+                                onClick={() => onUpdateStatus(record.id, 'Ditolak')}
+                                className="flex-1 bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1"
+                              >
+                                <XCircle className="w-3 h-3" /> Tolak
+                              </button>
+                           </div>
+                         ) : (
+                           <div className={`flex items-center gap-2 font-bold text-sm ${
+                             record.status === 'Disetujui' ? 'text-green-600' : 'text-red-600'
+                           }`}>
+                             {record.status === 'Disetujui' ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                             {record.status}
+                             <button 
+                               onClick={() => onUpdateStatus(record.id, 'Menunggu')}
+                               className="ml-auto text-xs text-slate-400 underline font-normal hover:text-slate-600"
+                             >
+                               Ubah
+                             </button>
+                           </div>
+                         )}
+                         {(!record.status || record.status === 'Menunggu') && (
+                           <span className="text-[10px] text-amber-500 font-medium flex items-center gap-1">
+                             <Clock className="w-3 h-3" /> Menunggu Persetujuan
+                           </span>
+                         )}
+                      </div>
+                    </td>
                     <td className="p-5 text-right">
                       <button
                         onClick={() => onDelete(record.id)}
-                        className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                        className="p-2.5 text-red-500 bg-red-50 hover:bg-red-100 hover:text-red-700 rounded-xl transition-all shadow-sm border border-red-100"
                         title="Hapus Data"
                       >
                         <Trash2 className="w-4 h-4" />
