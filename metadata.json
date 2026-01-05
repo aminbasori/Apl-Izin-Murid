@@ -1,0 +1,7 @@
+{
+  "name": "Absensi SDN Bangsal",
+  "description": "Aplikasi pencatatan izin dan ketidakhadiran murid SDN Bangsal dengan fitur ekspor Excel.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
