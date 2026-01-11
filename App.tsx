@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, ClipboardList, ShieldCheck, Bell, LogOut, Calendar, Clock, CheckCircle, XCircle, User } from 'lucide-react';
+import { ClipboardList, ShieldCheck, Bell, LogOut, Calendar, Clock, CheckCircle, XCircle, User } from 'lucide-react';
 import AbsenceForm from './components/AbsenceForm';
 import HistoryView from './components/HistoryView';
 import AdminLogin from './components/AdminLogin';
@@ -93,8 +93,12 @@ function App() {
       <header className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 pb-8 pt-6 rounded-b-[2.5rem] shadow-xl shadow-purple-200 sticky top-0 z-30">
         <div className="max-w-3xl mx-auto px-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center text-white border border-white/30 shadow-inner">
-              <BookOpen className="w-6 h-6" />
+            <div className="w-14 h-14 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center text-white border border-white/30 shadow-inner overflow-hidden p-1">
+              <img 
+                src="https://iili.io/fkDIbG2.png" 
+                alt="Logo SDN Bangsal" 
+                className="w-full h-full object-contain drop-shadow-sm" 
+              />
             </div>
             <div>
               <h1 className="text-xl font-extrabold text-white tracking-tight drop-shadow-sm">SDN Bangsal</h1>
