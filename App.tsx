@@ -1,29 +1,53 @@
 import React, { useState, useEffect } from 'react';
-import { ClipboardList, ShieldCheck, Bell, LogOut, Calendar, Clock, CheckCircle, XCircle, User } from 'lucide-react';
+import { ClipboardList, ShieldCheck, Bell, LogOut, Calendar, Clock, CheckCircle, XCircle, User, Loader2, WifiOff } from 'lucide-react';
 import AbsenceForm from './components/AbsenceForm';
 import HistoryView from './components/HistoryView';
 import AdminLogin from './components/AdminLogin';
 import { AbsenceRecord, ApprovalStatus } from './types';
 
+// URL Google Apps Script Database
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzlJpylUZUfcc7jxnKNdeax1Us-uD1xzyAGagvFuoD5HyIvLt_SNwsFMkmVt6v48-Z8/exec";
+
 function App() {
   const [activeTab, setActiveTab] = useState<'form' | 'admin'>('form');
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [records, setRecords] = useState<AbsenceRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+  
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('Data telah tersimpan di sistem.');
 
-  // Load records from LocalStorage on mount
-  useEffect(() => {
-    const savedRecords = localStorage.getItem('sdn_bangsal_absensi');
-    if (savedRecords) {
-      try {
-        setRecords(JSON.parse(savedRecords));
-      } catch (e) {
-        console.error("Failed to parse records", e);
-      }
+  // Fetch data from Google Sheets
+  const fetchRecords = async () => {
+    // Jika URL belum diganti (masih placeholder), jangan fetch
+    if (GOOGLE_SCRIPT_URL.includes("GANTI_DENGAN_URL")) {
+        setIsLoading(false);
+        return;
     }
 
-    // Check login session (optional, simpler to just reset on refresh for security demo)
+    try {
+      setIsError(false);
+      const response = await fetch(GOOGLE_SCRIPT_URL);
+      const data = await response.json();
+      
+      // Google Sheets kadang mengembalikan data kosong jika sheet baru
+      if (Array.isArray(data)) {
+        setRecords(data);
+      } else {
+        setRecords([]);
+      }
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      setIsError(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRecords();
+
     const session = sessionStorage.getItem('isAdminLoggedIn');
     if (session === 'true') {
       setIsAdminLoggedIn(true);
@@ -33,11 +57,6 @@ function App() {
       Notification.requestPermission();
     }
   }, []);
-
-  // Save records to LocalStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('sdn_bangsal_absensi', JSON.stringify(records));
-  }, [records]);
 
   const handleLoginSuccess = () => {
     setIsAdminLoggedIn(true);
@@ -50,46 +69,107 @@ function App() {
     setActiveTab('form');
   };
 
-  const handleFormSubmit = (newRecordData: Omit<AbsenceRecord, 'id' | 'timestamp'>) => {
+  const handleFormSubmit = async (newRecordData: Omit<AbsenceRecord, 'id' | 'timestamp'>) => {
     const newRecord: AbsenceRecord = {
       ...newRecordData,
       id: crypto.randomUUID(),
       timestamp: Date.now(),
-      status: 'Menunggu' // Default status
+      status: 'Menunggu'
     };
     
+    // Optimistic UI Update (Tampil langsung biar cepat)
     setRecords(prev => [newRecord, ...prev]);
-    setToastMessage('Data telah tersimpan di sistem.');
+    setToastMessage('Sedang menyinkronkan ke database...');
     setShowSuccessToast(true);
-    setTimeout(() => setShowSuccessToast(false), 3000);
 
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification("Izin Baru Diterima", {
-        body: `${newRecord.studentName} (${newRecord.className}) - ${newRecord.type}`,
-        icon: '/vite.svg',
-        tag: 'new-absence'
-      });
+    try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors', // Penting untuk Apps Script simple trigger
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                action: 'create',
+                data: newRecord
+            })
+        });
+        
+        // Refresh data untuk memastikan sinkron (opsional, tapi bagus)
+        // fetchRecords(); 
+        
+        setToastMessage('Data berhasil disimpan ke cloud.');
+        setTimeout(() => setShowSuccessToast(false), 3000);
+        
+        // Kirim notifikasi browser
+        if ("Notification" in window && Notification.permission === "granted") {
+            new Notification("Izin Baru Diterima", {
+                body: `${newRecord.studentName} - ${newRecord.type}`,
+                icon: '/vite.svg'
+            });
+        }
+    } catch (error) {
+        console.error("Gagal simpan ke cloud", error);
+        setToastMessage('Gagal simpan ke cloud. Cek koneksi.');
+        // Revert jika gagal (optional)
     }
   };
 
-  const handleDeleteRecord = (id: string) => {
-    if (window.confirm('Apakah Anda yakin ingin menghapus data ini?')) {
+  const handleDeleteRecord = async (id: string) => {
+    if (window.confirm('Apakah Anda yakin ingin menghapus data ini dari Database?')) {
+      // Optimistic UI
+      const oldRecords = [...records];
       setRecords(prev => prev.filter(r => r.id !== id));
-      setToastMessage('Data berhasil dihapus dari sistem.');
+      
+      setToastMessage('Menghapus data...');
       setShowSuccessToast(true);
-      setTimeout(() => setShowSuccessToast(false), 3000);
+
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'delete',
+                id: id
+            })
+        });
+        setToastMessage('Data berhasil dihapus.');
+        setTimeout(() => setShowSuccessToast(false), 3000);
+      } catch (error) {
+          // Revert jika gagal
+          setRecords(oldRecords);
+          alert("Gagal menghapus data. Periksa internet.");
+      }
     }
   };
 
-  const handleUpdateStatus = (id: string, status: ApprovalStatus) => {
-    setRecords(prev => prev.map(record => 
-      record.id === id ? { ...record, status } : record
-    ));
+  const handleUpdateStatus = async (id: string, status: ApprovalStatus) => {
+      // Optimistic UI
+      setRecords(prev => prev.map(record => 
+        record.id === id ? { ...record, status } : record
+      ));
+
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'updateStatus',
+                id: id,
+                status: status
+            })
+        });
+      } catch (error) {
+          console.error("Gagal update status", error);
+          alert("Gagal update status ke server.");
+      }
   };
 
   return (
     <div className="min-h-screen bg-slate-100 pb-24 font-sans selection:bg-fuchsia-200">
-      {/* Modern Header with Gradient & Curves */}
+      {/* Modern Header */}
       <header className="bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-600 pb-8 pt-6 rounded-b-[2.5rem] shadow-xl shadow-purple-200 sticky top-0 z-30">
         <div className="max-w-3xl mx-auto px-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -122,6 +202,16 @@ function App() {
         </div>
       </header>
 
+      {/* Warning jika URL belum di set */}
+      {GOOGLE_SCRIPT_URL.includes("GANTI_DENGAN_URL") && (
+        <div className="max-w-3xl mx-auto px-6 mt-4">
+             <div className="bg-amber-100 border-l-4 border-amber-500 text-amber-700 p-4 rounded shadow-md" role="alert">
+                <p className="font-bold">Konfigurasi Diperlukan</p>
+                <p>Silahkan buka file <code>App.tsx</code> dan ganti variabel <code>GOOGLE_SCRIPT_URL</code> dengan URL Deployment Apps Script Anda.</p>
+            </div>
+        </div>
+      )}
+
       {/* Floating Navigation Tabs */}
       <div className="max-w-3xl mx-auto px-6 -mt-6 z-40 relative">
         <div className="bg-white p-1.5 rounded-2xl shadow-lg shadow-slate-200/50 flex gap-1 border border-slate-100">
@@ -152,99 +242,124 @@ function App() {
 
       {/* Main Content Area */}
       <main className="max-w-3xl mx-auto px-4 mt-8">
-        {activeTab === 'form' ? (
-          <div className="space-y-8">
-            <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-200/60 border border-slate-100">
-              <div className="mb-8 pb-6 border-b border-dashed border-slate-200">
-                <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-fuchsia-600">
-                  Formulir Izin
-                </h2>
-                <p className="text-sm text-slate-500 mt-2 font-medium">Lengkapi data siswa untuk mengajukan izin.</p>
-              </div>
-              <AbsenceForm onSubmit={handleFormSubmit} />
+        {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                <Loader2 className="w-10 h-10 text-violet-600 animate-spin" />
+                <p className="text-slate-500 font-medium">Menghubungkan ke Database...</p>
             </div>
-
-            {/* Riwayat Izin Terbaru (Simplified Public View) */}
-            <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-200/60 border border-slate-100">
-              <div className="mb-6 flex items-center gap-3">
-                 <div className="p-2 bg-slate-100 rounded-lg text-slate-600">
-                    <Clock className="w-5 h-5" />
-                 </div>
-                 <h3 className="text-xl font-black text-slate-800">Riwayat Pengajuan Terkini</h3>
-              </div>
-              
-              <div className="overflow-hidden rounded-2xl border border-slate-100">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 border-b border-slate-100">
-                      <tr>
-                        <th className="p-4 font-bold text-slate-600">Siswa</th>
-                        <th className="p-4 font-bold text-slate-600">Keterangan</th>
-                        <th className="p-4 font-bold text-slate-600">Tanggal</th>
-                        <th className="p-4 font-bold text-slate-600 text-right">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {records.length > 0 ? (
-                        records.sort((a, b) => b.timestamp - a.timestamp).slice(0, 5).map((record) => (
-                          <tr key={record.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="p-4">
-                              <div className="font-bold text-slate-800">{record.studentName}</div>
-                              <div className="text-xs text-slate-500 font-medium mt-0.5">Kelas {record.className}</div>
-                            </td>
-                            <td className="p-4">
-                               <span className={`inline-flex px-2.5 py-1 rounded-md text-xs font-bold ${
-                                  record.type === 'Sakit' ? 'bg-red-50 text-red-600' :
-                                  record.type === 'Izin' ? 'bg-amber-50 text-amber-600' :
-                                  'bg-slate-100 text-slate-600'
-                               }`}>
-                                 {record.type}
-                               </span>
-                            </td>
-                            <td className="p-4 text-slate-500 font-medium">
-                              <div className="flex items-center gap-1.5">
-                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                                {new Date(record.date).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'})}
-                              </div>
-                            </td>
-                            <td className="p-4 text-right">
-                              <div className={`inline-flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-full ${
-                                record.status === 'Disetujui' ? 'bg-green-100 text-green-700' :
-                                record.status === 'Ditolak' ? 'bg-red-100 text-red-700' :
-                                'bg-slate-100 text-slate-500'
-                              }`}>
-                                {record.status === 'Disetujui' ? <CheckCircle className="w-3.5 h-3.5" /> : 
-                                 record.status === 'Ditolak' ? <XCircle className="w-3.5 h-3.5" /> : 
-                                 <Clock className="w-3.5 h-3.5" />}
-                                {record.status || 'Menunggu'}
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={4} className="p-8 text-center text-slate-400 text-sm font-medium">
-                            Belum ada riwayat pengajuan.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+        ) : isError ? (
+            <div className="flex flex-col items-center justify-center py-20 space-y-4 text-center">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+                    <WifiOff className="w-8 h-8 text-red-500" />
                 </div>
-              </div>
+                <div>
+                    <h3 className="text-lg font-bold text-slate-800">Gagal Memuat Data</h3>
+                    <p className="text-slate-500">Periksa koneksi internet Anda atau URL Script.</p>
+                    <button 
+                        onClick={fetchRecords}
+                        className="mt-4 px-6 py-2 bg-violet-600 text-white rounded-xl font-bold hover:bg-violet-700"
+                    >
+                        Coba Lagi
+                    </button>
+                </div>
             </div>
-          </div>
         ) : (
-          /* Logic Tab Admin */
-          !isAdminLoggedIn ? (
-            <AdminLogin onLogin={handleLoginSuccess} />
-          ) : (
-            <HistoryView 
-              records={records} 
-              onDelete={handleDeleteRecord} 
-              onUpdateStatus={handleUpdateStatus}
-            />
-          )
+            <>
+            {activeTab === 'form' ? (
+            <div className="space-y-8">
+                <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-200/60 border border-slate-100">
+                <div className="mb-8 pb-6 border-b border-dashed border-slate-200">
+                    <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-fuchsia-600">
+                    Formulir Izin
+                    </h2>
+                    <p className="text-sm text-slate-500 mt-2 font-medium">Lengkapi data siswa untuk mengajukan izin.</p>
+                </div>
+                <AbsenceForm onSubmit={handleFormSubmit} />
+                </div>
+
+                {/* Riwayat Izin Terbaru (Simplified Public View) */}
+                <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl shadow-slate-200/60 border border-slate-100">
+                <div className="mb-6 flex items-center gap-3">
+                    <div className="p-2 bg-slate-100 rounded-lg text-slate-600">
+                        <Clock className="w-5 h-5" />
+                    </div>
+                    <h3 className="text-xl font-black text-slate-800">Riwayat Pengajuan Terkini</h3>
+                </div>
+                
+                <div className="overflow-hidden rounded-2xl border border-slate-100">
+                    <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50 border-b border-slate-100">
+                        <tr>
+                            <th className="p-4 font-bold text-slate-600">Siswa</th>
+                            <th className="p-4 font-bold text-slate-600">Keterangan</th>
+                            <th className="p-4 font-bold text-slate-600">Tanggal</th>
+                            <th className="p-4 font-bold text-slate-600 text-right">Status</th>
+                        </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                        {records.length > 0 ? (
+                            records.sort((a, b) => b.timestamp - a.timestamp).slice(0, 5).map((record) => (
+                            <tr key={record.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="p-4">
+                                <div className="font-bold text-slate-800">{record.studentName}</div>
+                                <div className="text-xs text-slate-500 font-medium mt-0.5">Kelas {record.className}</div>
+                                </td>
+                                <td className="p-4">
+                                <span className={`inline-flex px-2.5 py-1 rounded-md text-xs font-bold ${
+                                    record.type === 'Sakit' ? 'bg-red-50 text-red-600' :
+                                    record.type === 'Izin' ? 'bg-amber-50 text-amber-600' :
+                                    'bg-slate-100 text-slate-600'
+                                }`}>
+                                    {record.type}
+                                </span>
+                                </td>
+                                <td className="p-4 text-slate-500 font-medium">
+                                <div className="flex items-center gap-1.5">
+                                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                    {new Date(record.date).toLocaleDateString('id-ID', {day: 'numeric', month: 'short'})}
+                                </div>
+                                </td>
+                                <td className="p-4 text-right">
+                                <div className={`inline-flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-full ${
+                                    record.status === 'Disetujui' ? 'bg-green-100 text-green-700' :
+                                    record.status === 'Ditolak' ? 'bg-red-100 text-red-700' :
+                                    'bg-slate-100 text-slate-500'
+                                }`}>
+                                    {record.status === 'Disetujui' ? <CheckCircle className="w-3.5 h-3.5" /> : 
+                                    record.status === 'Ditolak' ? <XCircle className="w-3.5 h-3.5" /> : 
+                                    <Clock className="w-3.5 h-3.5" />}
+                                    {record.status || 'Menunggu'}
+                                </div>
+                                </td>
+                            </tr>
+                            ))
+                        ) : (
+                            <tr>
+                            <td colSpan={4} className="p-8 text-center text-slate-400 text-sm font-medium">
+                                Belum ada riwayat pengajuan.
+                            </td>
+                            </tr>
+                        )}
+                        </tbody>
+                    </table>
+                    </div>
+                </div>
+                </div>
+            </div>
+            ) : (
+            /* Logic Tab Admin */
+            !isAdminLoggedIn ? (
+                <AdminLogin onLogin={handleLoginSuccess} />
+            ) : (
+                <HistoryView 
+                records={records} 
+                onDelete={handleDeleteRecord} 
+                onUpdateStatus={handleUpdateStatus}
+                />
+            )
+            )}
+            </>
         )}
       </main>
 
